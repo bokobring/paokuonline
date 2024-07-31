@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>登录和游戏系统</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: #f0f0f0;
+        }
+        #login-container, #game-container {
+            background-color: white;
+            padding: 20px;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.1);
+        }
+        input, button {
+            display: block;
+            width: 100%;
+            margin-bottom: 10px;
+            padding: 10px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            border: none;
+            cursor: pointer;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        #leaderboard {
+            margin-top: 20px;
+        }
+        canvas {
+            border: 2px solid #333;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0,0,0,0.3);
+        }
+    </style>
+</head>
+<body>
+    <div id="login-container">
+        <input type="text" id="username" placeholder="用户名">
+        <input type="password" id="password" placeholder="密码">
+        <button onclick="login()">登录</button>
+        <button onclick="showLeaderboard()">查看排行榜</button>
+        <button onclick="changeUsername()">更改用户名</button>
+        <button onclick="startGame()">开始游戏</button>
+        <div id="leaderboard"></div>
+    </div>
+    <div id="game-container" style="display: none;">
+        <canvas id="gameCanvas"></canvas>
+    </div>
+
+    <script>
+        let currentUser = getCookie('username');
+        const loginContainer = document.getElementById('login-container');
+        const gameContainer = document.getElementById('game-container');
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = 300;
+        canvas.height = 500;
+
+        let player = {
+            x: 50,
+            y: canvas.height - 50,
+            width: 30,
+            height: 50,
+            jumping: false,
+            jumpHeight: 0,
+            maxJumpHeight: 150
+        };
+
+        let obstacles = [];
+        let score = 0;
+        let gameSpeed = 5;
+        let isGameOver = false;
+        let jumpStartTime = 0;
+        let lastObstacleTime = 0;
+
+        if (currentUser) {
+            document.getElementById('username').value = currentUser;
+        }
+
+        function getCookie(name) {
+            const value = `; ${document.cookie}`;
+            const parts = value.split(`; ${name}=`);
+            if (parts.length === 2) return parts.pop().split(';').shift();
+        }
+
+        function login() {
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+
+            if (!username || !password) {
+                alert('请输入用户名和密码');
+                return;
+            }
+
+            fetch('/login', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ username, password }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('登录成功！');
+                    currentUser = username;
+                } else {
+                    if (data.reason === 'user_not_exist') {
+                        if (confirm('用户不存在。是否要注册新用户？')) {
+                            register(username, password);
+                        }
+                    } else if (data.reason === 'wrong_password') {
+                        alert('密码错误，请重试。');
+                    } else {
+                        alert(data.message);
+                    }
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('登录时发生错误，请稍后重试。');
+            });
+        }
+
+        function register(username, password) {
+            fetch('/register', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ username, password }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.success) {
+                    alert('注册成功！请登录。');
+                    document.getElementById('username').value = username;
+                    document.getElementById('password').value = '';
+                } else {
+                    alert(data.message);
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('注册时发生错误，请稍后重试。');
+            });
+        }
+
+        function showLeaderboard() {
+            fetch('/leaderboard')
+            .then(response => response.json())
+            .then(data => {
+                let leaderboardHtml = '<h3>排行榜</h3><ol>';
+                data.forEach(item => {
+                    leaderboardHtml += `<li>${item.username}: ${item.score}</li>`;
+                });
+                leaderboardHtml += '</ol>';
+                document.getElementById('leaderboard').innerHTML = leaderboardHtml;
+            })
+            .catch(error => {
+                console.error('Error:', error);
+                alert('获取排行榜时发生错误，请稍后重试。');
+            });
+        }
+
+        function changeUsername() {
+            if (!currentUser) {
+                alert('请先登录！');
+                return;
+            }
+            const newUsername = prompt("请输入新的用户名：");
+            if (newUsername) {
+                fetch('/change_username', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({ old_username: currentUser, new_username: newUsername }),
+                })
+                .then(response => response.json())
+                .then(data => {
+                    if (data.success) {
+                        alert('用户名更改成功！');
+                        currentUser = newUsername;
+                        document.getElementById('username').value = newUsername;
+                    } else {
+                        alert(data.message);
+                    }
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    alert('更改用户名时发生错误，请稍后重试。');
+                });
+            }
+        }
+
+        function startGame() {
+            if (!currentUser) {
+                alert('请先登录！');
+                return;
+            }
+            resetGame();
+            loginContainer.style.display = 'none';
+            gameContainer.style.display = 'block';
+            gameLoop();
+        }
+
+        function resetGame() {
+            player = {
+                x: 50,
+                y: canvas.height - 50,
+                width: 30,
+                height: 50,
+                jumping: false,
+                jumpHeight: 0,
+                maxJumpHeight: 150
+            };
+            obstacles = [];
+            score = 0;
+            gameSpeed = 5;
+            isGameOver = false;
+            jumpStartTime = 0;
+            lastObstacleTime = 0;
+        }
+
+        function drawPlayer() {
+            ctx.fillStyle = '#FF6347';
+            ctx.fillRect(player.x, player.y - player.jumpHeight, player.width, player.height);
+            
+            // Draw eyes
+            ctx.fillStyle = 'white';
+            ctx.fillRect(player.x + 20, player.y - player.jumpHeight + 10, 5, 5);
+            ctx.fillRect(player.x + 20, player.y - player.jumpHeight + 20, 5, 5);
+        }
+
+        function drawObstacles() {
+            ctx.fillStyle = '#32CD32';
+            obstacles.forEach(obstacle => {
+                ctx.fillRect(obstacle.x, obstacle.y, obstacle.width, obstacle.height);
+            });
+        }
+
+        function updateObstacles() {
+            const currentTime = Date.now();
+            if (currentTime - lastObstacleTime > 1500 && Math.random() < 0.5) {
+                obstacles.push({
+                    x: canvas.width,
+                    y: canvas.height - 30 - Math.random() * 50,
+                    width: 20 + Math.random() * 30,
+                    height: 30 + Math.random() * 50
+                });
+                lastObstacleTime = currentTime;
+            }
+
+            obstacles.forEach(obstacle => {
+                obstacle.x -= gameSpeed;
+            });
+
+            obstacles = obstacles.filter(obstacle => obstacle.x + obstacle.width > 0);
+        }
+
+        function checkCollision() {
+            return obstacles.some(obstacle =>
+                player.x < obstacle.x + obstacle.width &&
+                player.x + player.width > obstacle.x &&
+                player.y - player.jumpHeight < obstacle.y + obstacle.height &&
+                player.y - player.jumpHeight + player.height > obstacle.y
+            );
+        }
+
+        function drawScore() {
+            ctx.fillStyle = '#333';
+            ctx.font = 'bold 20px Arial';
+            ctx.fillText(`分数: ${score}`, 10, 30);
+        }
+
+        function drawGround() {
+            ctx.fillStyle = '#8B4513';
+            ctx.fillRect(0, canvas.height - 20, canvas.width, 20);
+        }
+
+        function drawClouds() {
+            ctx.fillStyle = 'white';
+            ctx.beginPath();
+            ctx.arc(50, 50, 20, 0, Math.PI * 2);
+            ctx.arc(70, 50, 15, 0, Math.PI * 2);
+            ctx.arc(90, 50, 20, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.arc(200, 80, 25, 0, Math.PI * 2);
+            ctx.arc(220, 80, 20, 0, Math.PI * 2);
+            ctx.arc(240, 80, 25, 0, Math.PI * 2);
+            ctx.fill();
+        }
+
+        function gameLoop() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            drawClouds();
+            drawGround();
+
+            if (!isGameOver) {
+                updateObstacles();
+                if (player.jumping) {
+                    const jumpDuration = Date.now() - jumpStartTime;
+                    player.jumpHeight = Math.sin((jumpDuration / 500) * Math.PI) * player.maxJumpHeight;
+                    if (jumpDuration > 500) {
+                        player.jumping = false;
+                        player.jumpHeight = 0;
+                    }
+                }
+
+                drawPlayer();
+                drawObstacles();
+                drawScore();
+
+                if (checkCollision()) {
+                    isGameOver = true;
+                    endGame();
+                }
+
+                score++;
+                if (score % 500 === 0) {
+                    gameSpeed += 0.5;
+                }
+
+                requestAnimationFrame(gameLoop);
+            } else {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                
+                ctx.fillStyle = 'white';
+                ctx.font = 'bold 30px Arial';
+                ctx.fillText('游戏结束', canvas.width / 2 - 60, canvas.height / 2);
+                ctx.font = 'bold 20px Arial';
+                ctx.fillText(`最终得分: ${score}`, canvas.width / 2 - 60, canvas.height / 2 + 40);
+                ctx.fillText('点击屏幕返回', canvas.width / 2 - 60, canvas.height / 2 + 80);
+            }
+        }
+
+        function endGame() {
+            fetch('/update_score', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ username: currentUser, score: score }),
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (!data.success) {
+                    console.error('更新分数失败');
+                }
+            })
+            .catch(error => {
+                console.error('Error:', error);
+            });
+        }
+
+        canvas.addEventListener('touchstart', handleTouch);
+        canvas.addEventListener('click', handleTouch);
+
+        function handleTouch(e) {
+            e.preventDefault();
+            if (isGameOver) {
+                gameContainer.style.display = 'none';
+                loginContainer.style.display = 'block';
+            } else if (!player.jumping) {
+                player.jumping = true;
+                jumpStartTime = Date.now();
+            }
+        }
+    </script>
+</body>
+</html>
